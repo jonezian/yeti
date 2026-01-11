@@ -212,6 +212,47 @@ class Statistics:
 stats = None
 # Global flag for quit
 quit_flag = False
+# Global log files
+log_files = None
+
+
+class LogFiles:
+    """Handle logging to multiple files."""
+
+    def __init__(self):
+        self.full_log = open('full.log', 'w', encoding='utf-8')
+        self.posts_log = open('posts.log', 'w', encoding='utf-8')
+        self.translated_log = open('suomennettu.log', 'w', encoding='utf-8')
+        self.urls_log = open('URLs.log', 'w', encoding='utf-8')
+
+    def log_full(self, text, timestamp):
+        """Log all posts from stream."""
+        self.full_log.write(f"[{timestamp}] {text}\n")
+        self.full_log.flush()
+
+    def log_post(self, text, timestamp):
+        """Log filtered posts."""
+        self.posts_log.write(f"[{timestamp}] {text}\n")
+        self.posts_log.flush()
+
+    def log_translated(self, original, translation, timestamp):
+        """Log translated posts."""
+        self.translated_log.write(f"[{timestamp}]\n")
+        self.translated_log.write(f"Original: {original}\n")
+        self.translated_log.write(f"Finnish: {translation}\n\n")
+        self.translated_log.flush()
+
+    def log_url(self, url):
+        """Log external URLs only."""
+        self.urls_log.write(f"{url}\n")
+        self.urls_log.flush()
+
+    def close(self):
+        """Close all log files."""
+        self.full_log.close()
+        self.posts_log.close()
+        self.translated_log.close()
+        self.urls_log.close()
 
 
 def translate_to_finnish(text):
@@ -290,7 +331,7 @@ def is_bluesky_link(url):
 
 def display_post(post_data, keywords, finnish_only=False):
     """Display a post with formatting."""
-    global stats
+    global stats, log_files
 
     try:
         commit = post_data.get('commit', {})
@@ -298,10 +339,25 @@ def display_post(post_data, keywords, finnish_only=False):
 
         text = record.get('text', '')
         langs = record.get('langs', [])
+        created_at = record.get('createdAt', '')
+
+        # Format timestamp - convert to local time
+        try:
+            dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+            local_dt = dt.astimezone()  # Convert to local timezone
+            time_str = local_dt.strftime('%Y-%m-%d %H:%M:%S')
+            display_time = local_dt.strftime('%H:%M:%S')
+        except:
+            time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            display_time = datetime.now().strftime('%H:%M:%S')
 
         # Record all posts for statistics
         if stats:
             stats.record_post(langs)
+
+        # Log all posts to full.log
+        if log_files and text:
+            log_files.log_full(text, time_str)
 
         if not text:
             return
@@ -310,17 +366,6 @@ def display_post(post_data, keywords, finnish_only=False):
         text_lower = text.lower()
         if not any(kw.lower() in text_lower for kw in keywords):
             return
-
-        # Get metadata
-        created_at = record.get('createdAt', '')
-
-        # Format timestamp - convert to local time
-        try:
-            dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-            local_dt = dt.astimezone()  # Convert to local timezone
-            time_str = local_dt.strftime('%H:%M:%S')
-        except:
-            time_str = datetime.now().strftime('%H:%M:%S')
 
         # Extract links from facets (exclude Bluesky internal links)
         links = []
@@ -359,9 +404,22 @@ def display_post(post_data, keywords, finnish_only=False):
         if stats:
             stats.record_displayed(text, keywords)
 
+        # Log filtered post to posts.log
+        if log_files:
+            log_files.log_post(text, time_str)
+
+        # Log translation to suomennettu.log
+        if log_files and translation:
+            log_files.log_translated(text, translation, time_str)
+
+        # Log external URLs to URLs.log
+        if log_files:
+            for link in links:
+                log_files.log_url(link)
+
         # Print separator and timestamp
         print(f"\n{BRIGHT_CYAN}{'─' * 60}{RESET}")
-        print(f"{BRIGHT_YELLOW}[{time_str}]{RESET}")
+        print(f"{BRIGHT_YELLOW}[{display_time}]{RESET}")
 
         if finnish_only:
             # Show only Finnish content in bright white
@@ -470,7 +528,7 @@ async def run_monitor(keywords, finnish_only=False):
 
 def main():
     """Main entry point."""
-    global stats, quit_flag
+    global stats, quit_flag, log_files
 
     print(f"\n{BRIGHT_CYAN}╔════════════════════════════════════════╗{RESET}")
     print(f"{BRIGHT_CYAN}║  Bluesky Jetstream Keyword Monitor     ║{RESET}")
@@ -502,9 +560,12 @@ def main():
 
     finnish_only = mode_choice == "2"
 
-    # Initialize statistics
+    # Initialize statistics and log files
     stats = Statistics(keywords)
+    log_files = LogFiles()
     quit_flag = False
+
+    print(f"\n{BRIGHT_CYAN}Logging to: full.log, posts.log, suomennettu.log, URLs.log{RESET}")
 
     # Save terminal settings
     old_settings = termios.tcgetattr(sys.stdin)
@@ -520,6 +581,10 @@ def main():
     finally:
         # Restore terminal settings
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+        # Close log files
+        if log_files:
+            log_files.close()
 
         # Finish statistics and print report
         stats.finish()

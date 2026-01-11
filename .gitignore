@@ -26,3 +26,7 @@ Thumbs.db
 
 # Logs
 *.log
+full.log
+posts.log
+suomennettu.log
+URLs.log
