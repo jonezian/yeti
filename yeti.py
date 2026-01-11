@@ -9,7 +9,12 @@ import json
 import asyncio
 import websockets
 import requests
+import sys
+import select
+import tty
+import termios
 from datetime import datetime
+from collections import defaultdict
 
 # ANSI color codes (bright versions)
 BRIGHT_LIGHT_BLUE = "\033[1;96m"  # Bright cyan for translations
@@ -18,9 +23,106 @@ BRIGHT_CYAN = "\033[1;36m"
 BRIGHT_YELLOW = "\033[1;93m"
 BRIGHT_WHITE = "\033[1;97m"
 BRIGHT_RED = "\033[1;91m"  # Bright red for links
+BRIGHT_GREEN = "\033[1;92m"
+BRIGHT_MAGENTA = "\033[1;95m"
 
 # Jetstream WebSocket endpoint
 JETSTREAM_URL = "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post"
+
+
+class Statistics:
+    """Track statistics for the monitoring session."""
+
+    def __init__(self, keywords):
+        self.keywords = keywords
+        self.start_time = datetime.now()
+        self.end_time = None
+        self.total_posts = 0
+        self.displayed_posts = 0
+        self.keyword_counts = defaultdict(int)
+        self.language_counts = defaultdict(int)
+
+    def record_post(self, langs):
+        """Record a post from the stream."""
+        self.total_posts += 1
+        # Track languages
+        if langs:
+            for lang in langs:
+                self.language_counts[lang] += 1
+        else:
+            self.language_counts['unknown'] += 1
+
+    def record_displayed(self, text, keywords):
+        """Record a displayed post and which keywords matched."""
+        self.displayed_posts += 1
+        text_lower = text.lower()
+        for kw in keywords:
+            if kw.lower() in text_lower:
+                self.keyword_counts[kw] += 1
+
+    def finish(self):
+        """Mark the session as finished."""
+        self.end_time = datetime.now()
+
+    def get_duration(self):
+        """Get the duration of the session."""
+        end = self.end_time or datetime.now()
+        return end - self.start_time
+
+    def print_report(self):
+        """Print the statistics report."""
+        duration = self.get_duration()
+        hours, remainder = divmod(int(duration.total_seconds()), 3600)
+        minutes, seconds = divmod(remainder, 60)
+
+        print(f"\n\n{BRIGHT_CYAN}{'═' * 60}{RESET}")
+        print(f"{BRIGHT_CYAN}                    SESSION REPORT{RESET}")
+        print(f"{BRIGHT_CYAN}{'═' * 60}{RESET}\n")
+
+        # Time info
+        print(f"{BRIGHT_WHITE}Time:{RESET}")
+        print(f"  Started:  {BRIGHT_YELLOW}{self.start_time.strftime('%Y-%m-%d %H:%M:%S')}{RESET}")
+        print(f"  Ended:    {BRIGHT_YELLOW}{self.end_time.strftime('%Y-%m-%d %H:%M:%S')}{RESET}")
+        print(f"  Duration: {BRIGHT_YELLOW}{hours:02d}:{minutes:02d}:{seconds:02d}{RESET}")
+
+        # Post counts
+        print(f"\n{BRIGHT_WHITE}Posts:{RESET}")
+        print(f"  Total from stream: {BRIGHT_GREEN}{self.total_posts:,}{RESET}")
+        print(f"  Displayed:         {BRIGHT_GREEN}{self.displayed_posts:,}{RESET}")
+        if self.total_posts > 0:
+            percentage = (self.displayed_posts / self.total_posts) * 100
+            print(f"  Match rate:        {BRIGHT_GREEN}{percentage:.2f}%{RESET}")
+
+        # Keyword stats
+        print(f"\n{BRIGHT_WHITE}Keyword matches:{RESET}")
+        if self.keyword_counts:
+            for kw in self.keywords:
+                count = self.keyword_counts.get(kw, 0)
+                print(f"  {BRIGHT_YELLOW}{kw}{RESET}: {BRIGHT_GREEN}{count:,}{RESET}")
+        else:
+            print(f"  {BRIGHT_YELLOW}No matches{RESET}")
+
+        # Language stats
+        print(f"\n{BRIGHT_WHITE}Languages:{RESET}")
+        if self.language_counts:
+            # Sort by count descending
+            sorted_langs = sorted(self.language_counts.items(), key=lambda x: x[1], reverse=True)
+            # Show top 15 languages
+            for lang, count in sorted_langs[:15]:
+                percentage = (count / self.total_posts) * 100 if self.total_posts > 0 else 0
+                print(f"  {BRIGHT_MAGENTA}{lang}{RESET}: {BRIGHT_GREEN}{count:,}{RESET} ({percentage:.1f}%)")
+            if len(sorted_langs) > 15:
+                print(f"  {BRIGHT_YELLOW}... and {len(sorted_langs) - 15} more languages{RESET}")
+        else:
+            print(f"  {BRIGHT_YELLOW}No language data{RESET}")
+
+        print(f"\n{BRIGHT_CYAN}{'═' * 60}{RESET}\n")
+
+
+# Global statistics instance
+stats = None
+# Global flag for quit
+quit_flag = False
 
 
 def translate_to_finnish(text):
@@ -99,11 +201,19 @@ def is_bluesky_link(url):
 
 def display_post(post_data, keywords, finnish_only=False):
     """Display a post with formatting."""
+    global stats
+
     try:
         commit = post_data.get('commit', {})
         record = commit.get('record', {})
 
         text = record.get('text', '')
+        langs = record.get('langs', [])
+
+        # Record all posts for statistics
+        if stats:
+            stats.record_post(langs)
+
         if not text:
             return
 
@@ -114,7 +224,6 @@ def display_post(post_data, keywords, finnish_only=False):
 
         # Get metadata
         created_at = record.get('createdAt', '')
-        langs = record.get('langs', [])
 
         # Format timestamp - convert to local time
         try:
@@ -157,6 +266,10 @@ def display_post(post_data, keywords, finnish_only=False):
         if finnish_only and not post_is_finnish and not translation:
             return
 
+        # Record displayed post
+        if stats:
+            stats.record_displayed(text, keywords)
+
         # Print separator and timestamp
         print(f"\n{BRIGHT_CYAN}{'─' * 60}{RESET}")
         print(f"{BRIGHT_YELLOW}[{time_str}]{RESET}")
@@ -181,21 +294,42 @@ def display_post(post_data, keywords, finnish_only=False):
         pass  # Silently skip malformed posts
 
 
+async def check_keyboard():
+    """Check for keyboard input (Q to quit)."""
+    global quit_flag
+
+    loop = asyncio.get_event_loop()
+
+    while not quit_flag:
+        # Check if there's input available
+        ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+        if ready:
+            char = sys.stdin.read(1)
+            if char.lower() == 'q':
+                quit_flag = True
+                break
+        await asyncio.sleep(0.1)
+
+
 async def monitor_jetstream(keywords, finnish_only=False):
     """Connect to Jetstream and monitor for posts containing keywords."""
+    global quit_flag
+
     print(f"\n{BRIGHT_WHITE}Connecting to Bluesky Jetstream...{RESET}")
     print(f"{BRIGHT_YELLOW}Monitoring for keywords: {', '.join(keywords)}{RESET}")
     if finnish_only:
         print(f"{BRIGHT_CYAN}Mode: Finnish only{RESET}")
-    print(f"{BRIGHT_CYAN}Press Ctrl+C to stop{RESET}\n")
+    print(f"{BRIGHT_CYAN}Press Q to quit{RESET}\n")
 
-    while True:
+    while not quit_flag:
         try:
             async with websockets.connect(JETSTREAM_URL) as websocket:
                 print(f"{BRIGHT_WHITE}Connected! Waiting for posts...{RESET}")
 
-                async for message in websocket:
+                while not quit_flag:
                     try:
+                        # Wait for message with timeout to check quit flag
+                        message = await asyncio.wait_for(websocket.recv(), timeout=0.5)
                         data = json.loads(message)
 
                         # Only process commit messages for posts
@@ -205,21 +339,50 @@ async def monitor_jetstream(keywords, finnish_only=False):
                                 if commit.get('collection') == 'app.bsky.feed.post':
                                     display_post(data, keywords, finnish_only)
 
+                    except asyncio.TimeoutError:
+                        continue
                     except json.JSONDecodeError:
                         continue
                     except Exception as e:
                         continue
 
         except websockets.exceptions.ConnectionClosed:
-            print(f"\n{BRIGHT_YELLOW}Connection closed. Reconnecting in 5 seconds...{RESET}")
-            await asyncio.sleep(5)
+            if not quit_flag:
+                print(f"\n{BRIGHT_YELLOW}Connection closed. Reconnecting in 5 seconds...{RESET}")
+                await asyncio.sleep(5)
         except Exception as e:
-            print(f"\n{BRIGHT_YELLOW}Connection error: {e}. Reconnecting in 5 seconds...{RESET}")
-            await asyncio.sleep(5)
+            if not quit_flag:
+                print(f"\n{BRIGHT_YELLOW}Connection error: {e}. Reconnecting in 5 seconds...{RESET}")
+                await asyncio.sleep(5)
+
+
+async def run_monitor(keywords, finnish_only=False):
+    """Run the monitor with keyboard detection."""
+    global quit_flag
+
+    # Create tasks for monitoring and keyboard checking
+    monitor_task = asyncio.create_task(monitor_jetstream(keywords, finnish_only))
+    keyboard_task = asyncio.create_task(check_keyboard())
+
+    # Wait for either task to complete
+    done, pending = await asyncio.wait(
+        [monitor_task, keyboard_task],
+        return_when=asyncio.FIRST_COMPLETED
+    )
+
+    # Cancel pending tasks
+    for task in pending:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 def main():
     """Main entry point."""
+    global stats, quit_flag
+
     print(f"\n{BRIGHT_CYAN}╔════════════════════════════════════════╗{RESET}")
     print(f"{BRIGHT_CYAN}║  Bluesky Jetstream Keyword Monitor     ║{RESET}")
     print(f"{BRIGHT_CYAN}╚════════════════════════════════════════╝{RESET}\n")
@@ -250,10 +413,28 @@ def main():
 
     finnish_only = mode_choice == "2"
 
+    # Initialize statistics
+    stats = Statistics(keywords)
+    quit_flag = False
+
+    # Save terminal settings
+    old_settings = termios.tcgetattr(sys.stdin)
+
     try:
-        asyncio.run(monitor_jetstream(keywords, finnish_only))
+        # Set terminal to raw mode for single character input
+        tty.setcbreak(sys.stdin.fileno())
+
+        asyncio.run(run_monitor(keywords, finnish_only))
+
     except KeyboardInterrupt:
-        print(f"\n\n{BRIGHT_YELLOW}Monitoring stopped.{RESET}")
+        pass
+    finally:
+        # Restore terminal settings
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+        # Finish statistics and print report
+        stats.finish()
+        stats.print_report()
 
 
 if __name__ == "__main__":
