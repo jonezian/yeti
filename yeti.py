@@ -29,6 +29,94 @@ BRIGHT_MAGENTA = "\033[1;95m"
 # Jetstream WebSocket endpoint
 JETSTREAM_URL = "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post"
 
+# Language code to full name mapping
+LANGUAGE_NAMES = {
+    'af': 'Afrikaans',
+    'am': 'Amharic',
+    'ar': 'Arabic',
+    'az': 'Azerbaijani',
+    'be': 'Belarusian',
+    'bg': 'Bulgarian',
+    'bn': 'Bengali',
+    'bs': 'Bosnian',
+    'ca': 'Catalan',
+    'cs': 'Czech',
+    'cy': 'Welsh',
+    'da': 'Danish',
+    'de': 'German',
+    'el': 'Greek',
+    'en': 'English',
+    'eo': 'Esperanto',
+    'es': 'Spanish',
+    'et': 'Estonian',
+    'eu': 'Basque',
+    'fa': 'Persian',
+    'fi': 'Finnish',
+    'fr': 'French',
+    'ga': 'Irish',
+    'gl': 'Galician',
+    'gu': 'Gujarati',
+    'he': 'Hebrew',
+    'hi': 'Hindi',
+    'hr': 'Croatian',
+    'hu': 'Hungarian',
+    'hy': 'Armenian',
+    'id': 'Indonesian',
+    'is': 'Icelandic',
+    'it': 'Italian',
+    'ja': 'Japanese',
+    'ka': 'Georgian',
+    'kk': 'Kazakh',
+    'km': 'Khmer',
+    'kn': 'Kannada',
+    'ko': 'Korean',
+    'ku': 'Kurdish',
+    'ky': 'Kyrgyz',
+    'la': 'Latin',
+    'lo': 'Lao',
+    'lt': 'Lithuanian',
+    'lv': 'Latvian',
+    'mk': 'Macedonian',
+    'ml': 'Malayalam',
+    'mn': 'Mongolian',
+    'mr': 'Marathi',
+    'ms': 'Malay',
+    'mt': 'Maltese',
+    'my': 'Burmese',
+    'ne': 'Nepali',
+    'nl': 'Dutch',
+    'no': 'Norwegian',
+    'pa': 'Punjabi',
+    'pl': 'Polish',
+    'ps': 'Pashto',
+    'pt': 'Portuguese',
+    'ro': 'Romanian',
+    'ru': 'Russian',
+    'sd': 'Sindhi',
+    'si': 'Sinhala',
+    'sk': 'Slovak',
+    'sl': 'Slovenian',
+    'so': 'Somali',
+    'sq': 'Albanian',
+    'sr': 'Serbian',
+    'sv': 'Swedish',
+    'sw': 'Swahili',
+    'ta': 'Tamil',
+    'te': 'Telugu',
+    'tg': 'Tajik',
+    'th': 'Thai',
+    'tl': 'Tagalog',
+    'tr': 'Turkish',
+    'uk': 'Ukrainian',
+    'ur': 'Urdu',
+    'uz': 'Uzbek',
+    'vi': 'Vietnamese',
+    'yi': 'Yiddish',
+    'zh': 'Chinese',
+    'zu': 'Zulu',
+    'unknown': 'Unknown',
+}
+
 
 class Statistics:
     """Track statistics for the monitoring session."""
@@ -108,9 +196,10 @@ class Statistics:
             # Sort by count descending
             sorted_langs = sorted(self.language_counts.items(), key=lambda x: x[1], reverse=True)
             # Show top 15 languages
-            for lang, count in sorted_langs[:15]:
+            for lang_code, count in sorted_langs[:15]:
                 percentage = (count / self.total_posts) * 100 if self.total_posts > 0 else 0
-                print(f"  {BRIGHT_MAGENTA}{lang}{RESET}: {BRIGHT_GREEN}{count:,}{RESET} ({percentage:.1f}%)")
+                lang_name = LANGUAGE_NAMES.get(lang_code, lang_code)
+                print(f"  {BRIGHT_MAGENTA}{lang_name}{RESET}: {BRIGHT_GREEN}{count:,}{RESET} ({percentage:.1f}%)")
             if len(sorted_langs) > 15:
                 print(f"  {BRIGHT_YELLOW}... and {len(sorted_langs) - 15} more languages{RESET}")
         else:
