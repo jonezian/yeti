@@ -13,6 +13,8 @@ import sys
 import select
 import tty
 import termios
+import os
+import shutil
 from datetime import datetime
 from collections import defaultdict
 
@@ -219,11 +221,36 @@ log_files = None
 class LogFiles:
     """Handle logging to multiple files."""
 
+    LOG_FILES = ['full.log', 'posts.log', 'suomennettu.log', 'URLs.log']
+
     def __init__(self):
+        # Check if any log files exist and backup them
+        self._backup_existing_logs()
+
+        # Create new log files
         self.full_log = open('full.log', 'w', encoding='utf-8')
         self.posts_log = open('posts.log', 'w', encoding='utf-8')
         self.translated_log = open('suomennettu.log', 'w', encoding='utf-8')
         self.urls_log = open('URLs.log', 'w', encoding='utf-8')
+
+    def _backup_existing_logs(self):
+        """Backup existing log files to a timestamped directory."""
+        # Check if any log files exist
+        existing_files = [f for f in self.LOG_FILES if os.path.exists(f)]
+
+        if not existing_files:
+            return
+
+        # Create backup directory with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_dir = f"{timestamp}_logs"
+        os.makedirs(backup_dir, exist_ok=True)
+
+        # Move existing files to backup directory
+        for log_file in existing_files:
+            shutil.move(log_file, os.path.join(backup_dir, log_file))
+
+        print(f"{BRIGHT_YELLOW}Existing logs moved to: {backup_dir}/{RESET}")
 
     def log_full(self, text, timestamp):
         """Log all posts from stream."""
