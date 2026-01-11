@@ -283,12 +283,14 @@ def check_run_limits():
         if run_time_limit is not None:
             duration = stats.get_duration()
             if duration.total_seconds() >= run_time_limit:
+                print(f"\n\n{BRIGHT_YELLOW}>>> Time limit reached. Shutting down...{RESET}\n")
                 quit_flag = True
                 return True
 
         # Check post limit
         if run_post_limit is not None:
             if stats.displayed_posts >= run_post_limit:
+                print(f"\n\n{BRIGHT_YELLOW}>>> Post limit reached ({run_post_limit:,} posts). Shutting down...{RESET}\n")
                 quit_flag = True
                 return True
 
@@ -599,14 +601,13 @@ async def check_keyboard():
     """Check for keyboard input (Q to quit)."""
     global quit_flag
 
-    loop = asyncio.get_event_loop()
-
     while not quit_flag:
         # Check if there's input available
         ready, _, _ = select.select([sys.stdin], [], [], 0.1)
         if ready:
             char = sys.stdin.read(1)
             if char.lower() == 'q':
+                print(f"\n\n{BRIGHT_YELLOW}>>> Interrupt detected. Shutting down...{RESET}\n")
                 quit_flag = True
                 break
         await asyncio.sleep(0.1)
