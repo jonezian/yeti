@@ -300,7 +300,7 @@ def check_run_limits():
 class LogFiles:
     """Handle logging to multiple files."""
 
-    LOG_FILES = ['full.log', 'posts.log', 'suomennettu.log', 'URLs.log', 'report.txt']
+    LOG_FILES = ['full.log', 'posts.log', 'translated.log', 'URLs.log', 'report.txt']
 
     def __init__(self):
         # Check if any log files exist and backup them
@@ -309,7 +309,7 @@ class LogFiles:
         # Create new log files
         self.full_log = open('full.log', 'w', encoding='utf-8')
         self.posts_log = open('posts.log', 'w', encoding='utf-8')
-        self.translated_log = open('suomennettu.log', 'w', encoding='utf-8')
+        self.translated_log = open('translated.log', 'w', encoding='utf-8')
         self.urls_log = open('URLs.log', 'w', encoding='utf-8')
 
     def _backup_existing_logs(self):
@@ -514,7 +514,7 @@ def display_post(post_data, keywords, finnish_only=False, silent_mode=False):
         if log_files:
             log_files.log_post(text, time_str)
 
-        # Log translation to suomennettu.log
+        # Log translation to translated.log
         if log_files and translation:
             log_files.log_translated(text, translation, time_str)
 
@@ -845,7 +845,7 @@ def main():
     log_files = LogFiles()
     quit_flag = False
 
-    print(f"\n{BRIGHT_CYAN}Logging to: full.log, posts.log, suomennettu.log, URLs.log{RESET}")
+    print(f"\n{BRIGHT_CYAN}Logging to: full.log, posts.log, translated.log, URLs.log{RESET}")
 
     # Save terminal settings
     old_settings = termios.tcgetattr(sys.stdin)
