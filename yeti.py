@@ -97,7 +97,7 @@ def is_bluesky_link(url):
     return False
 
 
-def display_post(post_data, keyword, finnish_only=False):
+def display_post(post_data, keywords, finnish_only=False):
     """Display a post with formatting."""
     try:
         commit = post_data.get('commit', {})
@@ -107,8 +107,9 @@ def display_post(post_data, keyword, finnish_only=False):
         if not text:
             return
 
-        # Check if keyword matches (case-insensitive)
-        if keyword.lower() not in text.lower():
+        # Check if any keyword matches (case-insensitive)
+        text_lower = text.lower()
+        if not any(kw.lower() in text_lower for kw in keywords):
             return
 
         # Get metadata
@@ -180,10 +181,10 @@ def display_post(post_data, keyword, finnish_only=False):
         pass  # Silently skip malformed posts
 
 
-async def monitor_jetstream(keyword, finnish_only=False):
-    """Connect to Jetstream and monitor for posts containing keyword."""
+async def monitor_jetstream(keywords, finnish_only=False):
+    """Connect to Jetstream and monitor for posts containing keywords."""
     print(f"\n{BRIGHT_WHITE}Connecting to Bluesky Jetstream...{RESET}")
-    print(f"{BRIGHT_YELLOW}Monitoring for keyword: '{keyword}'{RESET}")
+    print(f"{BRIGHT_YELLOW}Monitoring for keywords: {', '.join(keywords)}{RESET}")
     if finnish_only:
         print(f"{BRIGHT_CYAN}Mode: Finnish only{RESET}")
     print(f"{BRIGHT_CYAN}Press Ctrl+C to stop{RESET}\n")
@@ -202,7 +203,7 @@ async def monitor_jetstream(keyword, finnish_only=False):
                             commit = data.get('commit', {})
                             if commit.get('operation') == 'create':
                                 if commit.get('collection') == 'app.bsky.feed.post':
-                                    display_post(data, keyword, finnish_only)
+                                    display_post(data, keywords, finnish_only)
 
                     except json.JSONDecodeError:
                         continue
@@ -223,11 +224,23 @@ def main():
     print(f"{BRIGHT_CYAN}║  Bluesky Jetstream Keyword Monitor     ║{RESET}")
     print(f"{BRIGHT_CYAN}╚════════════════════════════════════════╝{RESET}\n")
 
-    keyword = input("Enter keyword to monitor: ").strip()
+    # Collect keywords
+    keywords = []
+    print(f"{BRIGHT_CYAN}Enter keywords to monitor (empty line to finish):{RESET}")
 
-    if not keyword:
-        print("No keyword provided. Exiting.")
+    while True:
+        prompt = f"  Keyword {len(keywords) + 1}: "
+        keyword = input(prompt).strip()
+
+        if not keyword:
+            break
+        keywords.append(keyword)
+
+    if not keywords:
+        print("No keywords provided. Exiting.")
         return
+
+    print(f"\n{BRIGHT_WHITE}Keywords: {', '.join(keywords)}{RESET}")
 
     # Ask for display mode
     print(f"\n{BRIGHT_CYAN}Display mode:{RESET}")
@@ -238,7 +251,7 @@ def main():
     finnish_only = mode_choice == "2"
 
     try:
-        asyncio.run(monitor_jetstream(keyword, finnish_only))
+        asyncio.run(monitor_jetstream(keywords, finnish_only))
     except KeyboardInterrupt:
         print(f"\n\n{BRIGHT_YELLOW}Monitoring stopped.{RESET}")
 
