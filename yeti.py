@@ -160,22 +160,75 @@ class Statistics:
         return end - self.start_time
 
     def print_report(self):
-        """Print the statistics report."""
+        """Print the statistics report and save to file."""
         duration = self.get_duration()
         hours, remainder = divmod(int(duration.total_seconds()), 3600)
         minutes, seconds = divmod(remainder, 60)
 
+        # Build report lines for both screen and file
+        report_lines = []
+
+        report_lines.append("=" * 60)
+        report_lines.append("                    SESSION REPORT")
+        report_lines.append("=" * 60)
+        report_lines.append("")
+
+        # Time info
+        report_lines.append("Time:")
+        report_lines.append(f"  Started:  {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        report_lines.append(f"  Ended:    {self.end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        report_lines.append(f"  Duration: {hours:02d}:{minutes:02d}:{seconds:02d}")
+
+        # Post counts
+        report_lines.append("")
+        report_lines.append("Posts:")
+        report_lines.append(f"  Total from stream: {self.total_posts:,}")
+        report_lines.append(f"  Displayed:         {self.displayed_posts:,}")
+        if self.total_posts > 0:
+            percentage = (self.displayed_posts / self.total_posts) * 100
+            report_lines.append(f"  Match rate:        {percentage:.2f}%")
+
+        # Keyword stats
+        report_lines.append("")
+        report_lines.append("Keyword matches:")
+        if self.keyword_counts:
+            for kw in self.keywords:
+                count = self.keyword_counts.get(kw, 0)
+                report_lines.append(f"  {kw}: {count:,}")
+        else:
+            report_lines.append("  No matches")
+
+        # Language stats
+        report_lines.append("")
+        report_lines.append("Languages:")
+        if self.language_counts:
+            sorted_langs = sorted(self.language_counts.items(), key=lambda x: x[1], reverse=True)
+            for lang_code, count in sorted_langs[:15]:
+                percentage = (count / self.total_posts) * 100 if self.total_posts > 0 else 0
+                lang_name = LANGUAGE_NAMES.get(lang_code, lang_code)
+                report_lines.append(f"  {lang_name}: {count:,} ({percentage:.1f}%)")
+            if len(sorted_langs) > 15:
+                report_lines.append(f"  ... and {len(sorted_langs) - 15} more languages")
+        else:
+            report_lines.append("  No language data")
+
+        report_lines.append("")
+        report_lines.append("=" * 60)
+
+        # Save to file
+        with open('report.txt', 'w', encoding='utf-8') as f:
+            f.write('\n'.join(report_lines))
+
+        # Print to screen with colors
         print(f"\n\n{BRIGHT_CYAN}{'═' * 60}{RESET}")
         print(f"{BRIGHT_CYAN}                    SESSION REPORT{RESET}")
         print(f"{BRIGHT_CYAN}{'═' * 60}{RESET}\n")
 
-        # Time info
         print(f"{BRIGHT_WHITE}Time:{RESET}")
         print(f"  Started:  {BRIGHT_YELLOW}{self.start_time.strftime('%Y-%m-%d %H:%M:%S')}{RESET}")
         print(f"  Ended:    {BRIGHT_YELLOW}{self.end_time.strftime('%Y-%m-%d %H:%M:%S')}{RESET}")
         print(f"  Duration: {BRIGHT_YELLOW}{hours:02d}:{minutes:02d}:{seconds:02d}{RESET}")
 
-        # Post counts
         print(f"\n{BRIGHT_WHITE}Posts:{RESET}")
         print(f"  Total from stream: {BRIGHT_GREEN}{self.total_posts:,}{RESET}")
         print(f"  Displayed:         {BRIGHT_GREEN}{self.displayed_posts:,}{RESET}")
@@ -183,7 +236,6 @@ class Statistics:
             percentage = (self.displayed_posts / self.total_posts) * 100
             print(f"  Match rate:        {BRIGHT_GREEN}{percentage:.2f}%{RESET}")
 
-        # Keyword stats
         print(f"\n{BRIGHT_WHITE}Keyword matches:{RESET}")
         if self.keyword_counts:
             for kw in self.keywords:
@@ -192,12 +244,9 @@ class Statistics:
         else:
             print(f"  {BRIGHT_YELLOW}No matches{RESET}")
 
-        # Language stats
         print(f"\n{BRIGHT_WHITE}Languages:{RESET}")
         if self.language_counts:
-            # Sort by count descending
             sorted_langs = sorted(self.language_counts.items(), key=lambda x: x[1], reverse=True)
-            # Show top 15 languages
             for lang_code, count in sorted_langs[:15]:
                 percentage = (count / self.total_posts) * 100 if self.total_posts > 0 else 0
                 lang_name = LANGUAGE_NAMES.get(lang_code, lang_code)
@@ -207,7 +256,8 @@ class Statistics:
         else:
             print(f"  {BRIGHT_YELLOW}No language data{RESET}")
 
-        print(f"\n{BRIGHT_CYAN}{'═' * 60}{RESET}\n")
+        print(f"\n{BRIGHT_CYAN}{'═' * 60}{RESET}")
+        print(f"{BRIGHT_GREEN}Report saved to report.txt{RESET}\n")
 
 
 # Global statistics instance
@@ -221,7 +271,7 @@ log_files = None
 class LogFiles:
     """Handle logging to multiple files."""
 
-    LOG_FILES = ['full.log', 'posts.log', 'suomennettu.log', 'URLs.log']
+    LOG_FILES = ['full.log', 'posts.log', 'suomennettu.log', 'URLs.log', 'report.txt']
 
     def __init__(self):
         # Check if any log files exist and backup them
