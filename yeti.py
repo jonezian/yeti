@@ -406,7 +406,7 @@ def is_bluesky_link(url):
     return False
 
 
-def display_post(post_data, keywords, finnish_only=False):
+def display_post(post_data, keywords, finnish_only=False, silent_mode=False):
     """Display a post with formatting."""
     global stats, log_files
 
@@ -494,6 +494,10 @@ def display_post(post_data, keywords, finnish_only=False):
             for link in links:
                 log_files.log_url(link)
 
+        # Skip display in silent mode
+        if silent_mode:
+            return
+
         # Print separator and timestamp
         print(f"\n{BRIGHT_CYAN}{'─' * 60}{RESET}")
         print(f"{BRIGHT_YELLOW}[{display_time}]{RESET}")
@@ -516,6 +520,52 @@ def display_post(post_data, keywords, finnish_only=False):
 
     except Exception as e:
         pass  # Silently skip malformed posts
+
+
+def display_live_stats():
+    """Display live statistics on screen."""
+    global stats
+
+    if not stats:
+        return
+
+    # Clear screen and move cursor to top
+    print("\033[2J\033[H", end="")
+
+    duration = stats.get_duration()
+    hours, remainder = divmod(int(duration.total_seconds()), 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    print(f"{BRIGHT_CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
+    print(f"{BRIGHT_CYAN}║            LIVE STATISTICS  (Press Q to quit)            ║{RESET}")
+    print(f"{BRIGHT_CYAN}╚══════════════════════════════════════════════════════════╝{RESET}\n")
+
+    print(f"{BRIGHT_WHITE}Running time:{RESET} {BRIGHT_YELLOW}{hours:02d}:{minutes:02d}:{seconds:02d}{RESET}\n")
+
+    print(f"{BRIGHT_WHITE}Posts:{RESET}")
+    print(f"  Total from stream: {BRIGHT_GREEN}{stats.total_posts:,}{RESET}")
+    print(f"  Filtered matches:  {BRIGHT_GREEN}{stats.displayed_posts:,}{RESET}")
+    if stats.total_posts > 0:
+        percentage = (stats.displayed_posts / stats.total_posts) * 100
+        print(f"  Match rate:        {BRIGHT_GREEN}{percentage:.4f}%{RESET}")
+
+    print(f"\n{BRIGHT_WHITE}Keyword matches:{RESET}")
+    if stats.keyword_counts:
+        for kw in stats.keywords:
+            count = stats.keyword_counts.get(kw, 0)
+            print(f"  {BRIGHT_YELLOW}{kw}{RESET}: {BRIGHT_GREEN}{count:,}{RESET}")
+    else:
+        print(f"  {BRIGHT_YELLOW}No matches yet{RESET}")
+
+    print(f"\n{BRIGHT_WHITE}Top 10 Languages:{RESET}")
+    if stats.language_counts:
+        sorted_langs = sorted(stats.language_counts.items(), key=lambda x: x[1], reverse=True)
+        for lang_code, count in sorted_langs[:10]:
+            percentage = (count / stats.total_posts) * 100 if stats.total_posts > 0 else 0
+            lang_name = LANGUAGE_NAMES.get(lang_code, lang_code)
+            print(f"  {BRIGHT_MAGENTA}{lang_name}{RESET}: {BRIGHT_GREEN}{count:,}{RESET} ({percentage:.1f}%)")
+    else:
+        print(f"  {BRIGHT_YELLOW}No data yet{RESET}")
 
 
 async def check_keyboard():
@@ -548,20 +598,31 @@ async def websocket_ping(websocket, interval=30):
             break
 
 
-async def monitor_jetstream(keywords, finnish_only=False):
+async def update_live_stats(interval=1):
+    """Update live statistics display periodically."""
+    global quit_flag
+
+    while not quit_flag:
+        display_live_stats()
+        await asyncio.sleep(interval)
+
+
+async def monitor_jetstream(keywords, finnish_only=False, silent_mode=False):
     """Connect to Jetstream and monitor for posts containing keywords."""
     global quit_flag
 
-    print(f"\n{BRIGHT_WHITE}Connecting to Bluesky Jetstream...{RESET}")
-    print(f"{BRIGHT_YELLOW}Monitoring for keywords: {', '.join(keywords)}{RESET}")
-    if finnish_only:
-        print(f"{BRIGHT_CYAN}Mode: Finnish only{RESET}")
-    print(f"{BRIGHT_CYAN}Press Q to quit{RESET}\n")
+    if not silent_mode:
+        print(f"\n{BRIGHT_WHITE}Connecting to Bluesky Jetstream...{RESET}")
+        print(f"{BRIGHT_YELLOW}Monitoring for keywords: {', '.join(keywords)}{RESET}")
+        if finnish_only:
+            print(f"{BRIGHT_CYAN}Mode: Finnish only{RESET}")
+        print(f"{BRIGHT_CYAN}Press Q to quit{RESET}\n")
 
     while not quit_flag:
         try:
             async with websockets.connect(JETSTREAM_URL, ping_interval=30, ping_timeout=10) as websocket:
-                print(f"{BRIGHT_WHITE}Connected! Waiting for posts...{RESET}")
+                if not silent_mode:
+                    print(f"{BRIGHT_WHITE}Connected! Waiting for posts...{RESET}")
 
                 # Start ping task
                 ping_task = asyncio.create_task(websocket_ping(websocket, 30))
@@ -578,7 +639,7 @@ async def monitor_jetstream(keywords, finnish_only=False):
                                 commit = data.get('commit', {})
                                 if commit.get('operation') == 'create':
                                     if commit.get('collection') == 'app.bsky.feed.post':
-                                        display_post(data, keywords, finnish_only)
+                                        display_post(data, keywords, finnish_only, silent_mode)
 
                         except asyncio.TimeoutError:
                             continue
@@ -595,26 +656,32 @@ async def monitor_jetstream(keywords, finnish_only=False):
                         pass
 
         except websockets.exceptions.ConnectionClosed:
-            if not quit_flag:
+            if not quit_flag and not silent_mode:
                 print(f"\n{BRIGHT_YELLOW}Connection closed. Reconnecting in 5 seconds...{RESET}")
-                await asyncio.sleep(5)
+            await asyncio.sleep(5)
         except Exception as e:
-            if not quit_flag:
+            if not quit_flag and not silent_mode:
                 print(f"\n{BRIGHT_YELLOW}Connection error: {e}. Reconnecting in 5 seconds...{RESET}")
-                await asyncio.sleep(5)
+            await asyncio.sleep(5)
 
 
-async def run_monitor(keywords, finnish_only=False):
+async def run_monitor(keywords, finnish_only=False, silent_mode=False):
     """Run the monitor with keyboard detection."""
     global quit_flag
 
     # Create tasks for monitoring and keyboard checking
-    monitor_task = asyncio.create_task(monitor_jetstream(keywords, finnish_only))
+    monitor_task = asyncio.create_task(monitor_jetstream(keywords, finnish_only, silent_mode))
     keyboard_task = asyncio.create_task(check_keyboard())
+
+    # Add live stats task if in silent mode
+    tasks = [monitor_task, keyboard_task]
+    if silent_mode:
+        stats_task = asyncio.create_task(update_live_stats(1))
+        tasks.append(stats_task)
 
     # Wait for either task to complete
     done, pending = await asyncio.wait(
-        [monitor_task, keyboard_task],
+        tasks,
         return_when=asyncio.FIRST_COMPLETED
     )
 
@@ -694,10 +761,12 @@ def main():
     # Ask for display mode
     print(f"\n{BRIGHT_CYAN}Display mode:{RESET}")
     print(f"  {BRIGHT_WHITE}1{RESET} - Show original + Finnish translation (default)")
-    print(f"  {BRIGHT_WHITE}2{RESET} - Show only Finnish (translated){RESET}")
+    print(f"  {BRIGHT_WHITE}2{RESET} - Show only Finnish (translated)")
+    print(f"  {BRIGHT_WHITE}3{RESET} - Background mode (live statistics only)")
     mode_choice = input("\nSelect mode [1]: ").strip()
 
     finnish_only = mode_choice == "2"
+    silent_mode = mode_choice == "3"
 
     # Initialize statistics and log files
     stats = Statistics(keywords)
@@ -713,7 +782,7 @@ def main():
         # Set terminal to raw mode for single character input
         tty.setcbreak(sys.stdin.fileno())
 
-        asyncio.run(run_monitor(keywords, finnish_only))
+        asyncio.run(run_monitor(keywords, finnish_only, silent_mode))
 
     except KeyboardInterrupt:
         pass

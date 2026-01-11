@@ -1,0 +1,36 @@
+============================================================
+                    SESSION REPORT
+============================================================
+
+Time:
+  Started:  2026-01-11 21:19:11
+  Ended:    2026-01-11 21:19:24
+  Duration: 00:00:12
+
+Posts:
+  Total from stream: 595
+  Displayed:         6
+  Match rate:        1.01%
+
+Keyword matches:
+  Iran: 6
+
+Languages:
+  English: 449 (75.5%)
+  Unknown: 26 (4.4%)
+  Portuguese: 23 (3.9%)
+  Japanese: 22 (3.7%)
+  Spanish: 21 (3.5%)
+  German: 21 (3.5%)
+  French: 12 (2.0%)
+  Dutch: 5 (0.8%)
+  Swedish: 4 (0.7%)
+  Finnish: 3 (0.5%)
+  Italian: 3 (0.5%)
+  Danish: 2 (0.3%)
+  Catalan: 2 (0.3%)
+  Ukrainian: 1 (0.2%)
+  Greek: 1 (0.2%)
+  ... and 7 more languages
+
+============================================================
