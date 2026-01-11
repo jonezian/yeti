@@ -577,6 +577,22 @@ async def run_monitor(keywords, finnish_only=False):
             pass
 
 
+def load_keywords_from_file():
+    """Load keywords from keywords.txt if it exists."""
+    if os.path.exists('keywords.txt'):
+        with open('keywords.txt', 'r', encoding='utf-8') as f:
+            keywords = [line.strip() for line in f if line.strip()]
+            return keywords
+    return []
+
+
+def save_keywords_to_file(keywords):
+    """Save keywords to keywords.txt."""
+    with open('keywords.txt', 'w', encoding='utf-8') as f:
+        for keyword in keywords:
+            f.write(f"{keyword}\n")
+
+
 def main():
     """Main entry point."""
     global stats, quit_flag, log_files
@@ -585,21 +601,43 @@ def main():
     print(f"{BRIGHT_CYAN}║  Bluesky Jetstream Keyword Monitor     ║{RESET}")
     print(f"{BRIGHT_CYAN}╚════════════════════════════════════════╝{RESET}\n")
 
-    # Collect keywords
+    # Check for saved keywords
     keywords = []
-    print(f"{BRIGHT_CYAN}Enter keywords to monitor (empty line to finish):{RESET}")
+    saved_keywords = load_keywords_from_file()
 
-    while True:
-        prompt = f"  Keyword {len(keywords) + 1}: "
-        keyword = input(prompt).strip()
+    if saved_keywords:
+        print(f"{BRIGHT_CYAN}Saved keywords found:{RESET}")
+        for i, kw in enumerate(saved_keywords, 1):
+            print(f"  {BRIGHT_WHITE}{i}. {kw}{RESET}")
 
-        if not keyword:
-            break
-        keywords.append(keyword)
+        use_saved = input(f"\n{BRIGHT_CYAN}Use saved keywords? [Y/n]: {RESET}").strip().lower()
+
+        if use_saved != 'n':
+            keywords = saved_keywords
+            print(f"\n{BRIGHT_GREEN}Using saved keywords.{RESET}")
+        else:
+            print(f"\n{BRIGHT_CYAN}Enter new keywords to monitor (empty line to finish):{RESET}")
 
     if not keywords:
-        print("No keywords provided. Exiting.")
-        return
+        # Collect new keywords
+        if not saved_keywords:
+            print(f"{BRIGHT_CYAN}Enter keywords to monitor (empty line to finish):{RESET}")
+
+        while True:
+            prompt = f"  Keyword {len(keywords) + 1}: "
+            keyword = input(prompt).strip()
+
+            if not keyword:
+                break
+            keywords.append(keyword)
+
+        if not keywords:
+            print("No keywords provided. Exiting.")
+            return
+
+        # Save new keywords to file
+        save_keywords_to_file(keywords)
+        print(f"{BRIGHT_GREEN}Keywords saved to keywords.txt{RESET}")
 
     print(f"\n{BRIGHT_WHITE}Keywords: {', '.join(keywords)}{RESET}")
 
