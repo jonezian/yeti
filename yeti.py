@@ -485,6 +485,19 @@ async def check_keyboard():
         await asyncio.sleep(0.1)
 
 
+async def websocket_ping(websocket, interval=30):
+    """Send periodic ping to keep WebSocket connection alive."""
+    global quit_flag
+
+    while not quit_flag:
+        try:
+            await asyncio.sleep(interval)
+            if not quit_flag:
+                await websocket.ping()
+        except Exception:
+            break
+
+
 async def monitor_jetstream(keywords, finnish_only=False):
     """Connect to Jetstream and monitor for posts containing keywords."""
     global quit_flag
@@ -497,28 +510,39 @@ async def monitor_jetstream(keywords, finnish_only=False):
 
     while not quit_flag:
         try:
-            async with websockets.connect(JETSTREAM_URL) as websocket:
+            async with websockets.connect(JETSTREAM_URL, ping_interval=30, ping_timeout=10) as websocket:
                 print(f"{BRIGHT_WHITE}Connected! Waiting for posts...{RESET}")
 
-                while not quit_flag:
+                # Start ping task
+                ping_task = asyncio.create_task(websocket_ping(websocket, 30))
+
+                try:
+                    while not quit_flag:
+                        try:
+                            # Wait for message with timeout to check quit flag
+                            message = await asyncio.wait_for(websocket.recv(), timeout=0.5)
+                            data = json.loads(message)
+
+                            # Only process commit messages for posts
+                            if data.get('kind') == 'commit':
+                                commit = data.get('commit', {})
+                                if commit.get('operation') == 'create':
+                                    if commit.get('collection') == 'app.bsky.feed.post':
+                                        display_post(data, keywords, finnish_only)
+
+                        except asyncio.TimeoutError:
+                            continue
+                        except json.JSONDecodeError:
+                            continue
+                        except Exception as e:
+                            continue
+                finally:
+                    # Cancel ping task when done
+                    ping_task.cancel()
                     try:
-                        # Wait for message with timeout to check quit flag
-                        message = await asyncio.wait_for(websocket.recv(), timeout=0.5)
-                        data = json.loads(message)
-
-                        # Only process commit messages for posts
-                        if data.get('kind') == 'commit':
-                            commit = data.get('commit', {})
-                            if commit.get('operation') == 'create':
-                                if commit.get('collection') == 'app.bsky.feed.post':
-                                    display_post(data, keywords, finnish_only)
-
-                    except asyncio.TimeoutError:
-                        continue
-                    except json.JSONDecodeError:
-                        continue
-                    except Exception as e:
-                        continue
+                        await ping_task
+                    except asyncio.CancelledError:
+                        pass
 
         except websockets.exceptions.ConnectionClosed:
             if not quit_flag:
