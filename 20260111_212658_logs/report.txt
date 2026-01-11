@@ -1,0 +1,36 @@
+============================================================
+                    SESSION REPORT
+============================================================
+
+Time:
+  Started:  2026-01-11 21:20:03
+  Ended:    2026-01-11 21:20:40
+  Duration: 00:00:37
+
+Posts:
+  Total from stream: 828
+  Displayed:         24
+  Match rate:        2.90%
+
+Keyword matches:
+  Trump: 24
+
+Languages:
+  English: 556 (67.1%)
+  Unknown: 118 (14.3%)
+  en-US: 41 (5.0%)
+  German: 28 (3.4%)
+  Japanese: 26 (3.1%)
+  Spanish: 25 (3.0%)
+  Portuguese: 19 (2.3%)
+  French: 15 (1.8%)
+  Dutch: 7 (0.8%)
+  Turkish: 5 (0.6%)
+  Korean: 5 (0.6%)
+  Italian: 5 (0.6%)
+  Russian: 4 (0.5%)
+  Arabic: 4 (0.5%)
+  pt-PT: 4 (0.5%)
+  ... and 13 more languages
+
+============================================================

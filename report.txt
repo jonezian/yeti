@@ -3,34 +3,34 @@
 ============================================================
 
 Time:
-  Started:  2026-01-11 21:20:03
-  Ended:    2026-01-11 21:20:40
-  Duration: 00:00:37
+  Started:  2026-01-11 21:26:58
+  Ended:    2026-01-11 21:28:16
+  Duration: 00:01:17
 
 Posts:
-  Total from stream: 828
-  Displayed:         24
-  Match rate:        2.90%
+  Total from stream: 3,077
+  Displayed:         77
+  Match rate:        2.50%
 
 Keyword matches:
-  Trump: 24
+  Trump: 77
 
 Languages:
-  English: 556 (67.1%)
-  Unknown: 118 (14.3%)
-  en-US: 41 (5.0%)
-  German: 28 (3.4%)
-  Japanese: 26 (3.1%)
-  Spanish: 25 (3.0%)
-  Portuguese: 19 (2.3%)
-  French: 15 (1.8%)
-  Dutch: 7 (0.8%)
-  Turkish: 5 (0.6%)
-  Korean: 5 (0.6%)
-  Italian: 5 (0.6%)
-  Russian: 4 (0.5%)
-  Arabic: 4 (0.5%)
-  pt-PT: 4 (0.5%)
-  ... and 13 more languages
+  English: 2,258 (73.4%)
+  Unknown: 270 (8.8%)
+  Portuguese: 109 (3.5%)
+  Spanish: 88 (2.9%)
+  German: 82 (2.7%)
+  Japanese: 65 (2.1%)
+  French: 49 (1.6%)
+  Dutch: 32 (1.0%)
+  Turkish: 23 (0.7%)
+  Korean: 17 (0.6%)
+  Italian: 16 (0.5%)
+  Swedish: 15 (0.5%)
+  Russian: 10 (0.3%)
+  Finnish: 8 (0.3%)
+  Arabic: 8 (0.3%)
+  ... and 21 more languages
 
 ============================================================

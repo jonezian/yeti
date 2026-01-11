@@ -266,6 +266,33 @@ stats = None
 quit_flag = False
 # Global log files
 log_files = None
+# Global run limits
+run_time_limit = None  # In seconds, None = unlimited
+run_post_limit = None  # Number of filtered posts, None = unlimited
+
+
+def check_run_limits():
+    """Check if run limits have been reached and set quit_flag if so."""
+    global quit_flag, stats, run_time_limit, run_post_limit
+
+    if quit_flag:
+        return True
+
+    if stats:
+        # Check time limit
+        if run_time_limit is not None:
+            duration = stats.get_duration()
+            if duration.total_seconds() >= run_time_limit:
+                quit_flag = True
+                return True
+
+        # Check post limit
+        if run_post_limit is not None:
+            if stats.displayed_posts >= run_post_limit:
+                quit_flag = True
+                return True
+
+    return False
 
 
 class LogFiles:
@@ -628,7 +655,7 @@ async def monitor_jetstream(keywords, finnish_only=False, silent_mode=False):
                 ping_task = asyncio.create_task(websocket_ping(websocket, 30))
 
                 try:
-                    while not quit_flag:
+                    while not quit_flag and not check_run_limits():
                         try:
                             # Wait for message with timeout to check quit flag
                             message = await asyncio.wait_for(websocket.recv(), timeout=0.5)
@@ -640,8 +667,12 @@ async def monitor_jetstream(keywords, finnish_only=False, silent_mode=False):
                                 if commit.get('operation') == 'create':
                                     if commit.get('collection') == 'app.bsky.feed.post':
                                         display_post(data, keywords, finnish_only, silent_mode)
+                                        # Check limits after each displayed post
+                                        check_run_limits()
 
                         except asyncio.TimeoutError:
+                            # Check limits on timeout too
+                            check_run_limits()
                             continue
                         except json.JSONDecodeError:
                             continue
@@ -757,6 +788,46 @@ def main():
         print(f"{BRIGHT_GREEN}Keywords saved to keywords.txt{RESET}")
 
     print(f"\n{BRIGHT_WHITE}Keywords: {', '.join(keywords)}{RESET}")
+
+    # Ask for run mode
+    print(f"\n{BRIGHT_CYAN}Run mode:{RESET}")
+    print(f"  {BRIGHT_WHITE}1{RESET} - Run until interrupted (default)")
+    print(f"  {BRIGHT_WHITE}2{RESET} - Run for specific duration")
+    print(f"  {BRIGHT_WHITE}3{RESET} - Run until specific number of filtered posts")
+    run_mode = input("\nSelect run mode [1]: ").strip()
+
+    global run_time_limit, run_post_limit
+    run_time_limit = None
+    run_post_limit = None
+
+    if run_mode == "2":
+        print(f"\n{BRIGHT_CYAN}Enter duration:{RESET}")
+        try:
+            hours = int(input("  Hours [0]: ").strip() or "0")
+            minutes = int(input("  Minutes [0]: ").strip() or "0")
+            seconds = int(input("  Seconds [0]: ").strip() or "0")
+            run_time_limit = hours * 3600 + minutes * 60 + seconds
+            if run_time_limit <= 0:
+                print(f"{BRIGHT_YELLOW}Invalid duration. Running until interrupted.{RESET}")
+                run_time_limit = None
+            else:
+                print(f"{BRIGHT_GREEN}Will run for {hours:02d}:{minutes:02d}:{seconds:02d}{RESET}")
+        except ValueError:
+            print(f"{BRIGHT_YELLOW}Invalid input. Running until interrupted.{RESET}")
+            run_time_limit = None
+
+    elif run_mode == "3":
+        try:
+            post_count = int(input(f"\n{BRIGHT_CYAN}Number of filtered posts to collect: {RESET}").strip())
+            if post_count <= 0:
+                print(f"{BRIGHT_YELLOW}Invalid number. Running until interrupted.{RESET}")
+                run_post_limit = None
+            else:
+                run_post_limit = post_count
+                print(f"{BRIGHT_GREEN}Will collect {post_count:,} filtered posts{RESET}")
+        except ValueError:
+            print(f"{BRIGHT_YELLOW}Invalid input. Running until interrupted.{RESET}")
+            run_post_limit = None
 
     # Ask for display mode
     print(f"\n{BRIGHT_CYAN}Display mode:{RESET}")
