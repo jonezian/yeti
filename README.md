@@ -1,18 +1,18 @@
 # Yeti
 
-Real-time Bluesky post monitor with keyword filtering and automatic Finnish translation.
+Real-time Bluesky post monitor with keyword filtering and automatic English translation.
 
 ## Overview
 
-Yeti connects to the Bluesky Jetstream WebSocket service to monitor the global firehose of posts in real-time. It filters posts by user-specified keywords and automatically translates non-Finnish content to Finnish using Google Translate.
+Yeti connects to the Bluesky Jetstream WebSocket service to monitor the global firehose of posts in real-time. It filters posts by user-specified keywords and automatically translates non-English content to English using Google Translate.
 
 ## Features
 
 ### Core Features
 - **Real-time monitoring** - Connects to Bluesky Jetstream WebSocket for live post streaming
 - **Multiple keyword filtering** - Monitor multiple keywords simultaneously (case-insensitive)
-- **Automatic translation** - Non-Finnish posts are automatically translated to Finnish
-- **Language detection** - Detects Finnish using language tags and linguistic pattern analysis
+- **Automatic translation** - Non-English posts are automatically translated to English
+- **Language detection** - Detects English using language tags and linguistic pattern analysis
 - **Keyword persistence** - Keywords saved to `keywords.txt` for reuse
 
 ### Run Modes
@@ -21,15 +21,15 @@ Yeti connects to the Bluesky Jetstream WebSocket service to monitor the global f
 - **Post-limited** - Run until a specific number of filtered posts are collected
 
 ### Display Modes
-- **Original + Translation** - Show original post with Finnish translation
-- **Finnish only** - Show only Finnish content (translations in white, originals hidden)
+- **Original + Translation** - Show original post with English translation
+- **English only** - Show only English content (translations in white, originals hidden)
 - **Background mode** - Live statistics dashboard updated every second
 
 ### Logging
 All data is logged to separate files:
 - `full.log` - All posts from Jetstream stream
 - `posts.log` - Filtered posts matching keywords
-- `translated.log` - Translated posts (original + Finnish)
+- `translated.log` - Translated posts (original + English)
 - `URLs.log` - External URLs only
 - `report.txt` - Session statistics report
 
@@ -108,8 +108,8 @@ Select run mode [1]:
 #### 3. Display Mode
 ```
 Display mode:
-  1 - Show original + Finnish translation (default)
-  2 - Show only Finnish (translated)
+  1 - Show original + English translation (default)
+  2 - Show only English (translated)
   3 - Background mode (live statistics only)
 
 Select mode [1]:
@@ -127,9 +127,9 @@ Select mode [1]:
 ────────────────────────────────────────────────────────
 [14:32:15]
 
-Just learned about Python decorators, they're amazing!
+Acabo de aprender sobre los decoradores de Python, ¡son increíbles!
 
-[FI] Opin juuri Python-koristelijoista, ne ovat hämmästyttäviä!
+[Spanish → EN] Just learned about Python decorators, they're amazing!
 
 https://example.com/python-tutorial
 ```
@@ -195,16 +195,13 @@ Yeti connects to `wss://jetstream2.us-east.bsky.network/subscribe` with the `wan
 
 ### Language Detection
 
-Finnish is detected using:
-1. **Language tags** - Posts with `fi` language tag are recognized as Finnish
-2. **Linguistic patterns**:
-   - Finnish special characters (ä, ö, å)
-   - Finnish double vowels (aa, ee, ii, oo, uu, yy, ää, öö)
-   - Common Finnish words
+English is detected using:
+1. **Language tags** - Posts with `en` language tag are recognized as English
+2. **Linguistic patterns** - Common English words (the, and, is, that, etc.)
 
 ### Translation
 
-Non-Finnish posts are translated using Google Translate's unofficial API endpoint. Translations that match the original text are filtered out.
+Non-English posts are translated using Google Translate's unofficial API endpoint. Translations that match the original text are filtered out.
 
 ### Link Handling
 

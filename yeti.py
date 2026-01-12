@@ -2,7 +2,7 @@
 """
 Bluesky Jetstream Monitor - Real-time post monitoring with keyword filtering
 Connects to Bluesky Jetstream WebSocket service and displays posts matching keywords.
-Non-Finnish posts are automatically translated to Finnish.
+Non-English posts are automatically translated to English.
 """
 
 import json
@@ -345,7 +345,7 @@ class LogFiles:
         """Log translated posts."""
         self.translated_log.write(f"[{timestamp}]\n")
         self.translated_log.write(f"Original: {original}\n")
-        self.translated_log.write(f"Finnish: {translation}\n\n")
+        self.translated_log.write(f"English: {translation}\n\n")
         self.translated_log.flush()
 
     def log_url(self, url):
@@ -361,14 +361,15 @@ class LogFiles:
         self.urls_log.close()
 
 
-def translate_to_finnish(text):
-    """Translate text to Finnish using Google Translate API."""
+def translate_to_english(text):
+    """Translate text to English using Google Translate API.
+    Returns tuple (translation, source_language_code) or (None, None) on failure."""
     try:
         url = "https://translate.googleapis.com/translate_a/single"
         params = {
             'client': 'gtx',
             'sl': 'auto',
-            'tl': 'fi',
+            'tl': 'en',
             'dt': 't',
             'q': text
         }
@@ -376,45 +377,39 @@ def translate_to_finnish(text):
         if response.status_code == 200:
             result = response.json()
             translated = ''.join([part[0] for part in result[0] if part[0]])
-            return translated
+            # Source language is at index 2 of the response
+            source_lang = result[2] if len(result) > 2 else 'unknown'
+            return translated, source_lang
     except Exception as e:
-        return None
-    return None
+        return None, None
+    return None, None
 
 
-def is_finnish(text, langs=None):
+def is_english(text, langs=None):
     """
-    Detect if text is Finnish based on language tag or linguistic patterns.
+    Detect if text is English based on language tag or linguistic patterns.
     """
     # Check language tags first
     if langs:
         for lang in langs:
-            if lang.lower().startswith('fi'):
+            if lang.lower().startswith('en'):
                 return True
 
     # Fallback to pattern matching
     text_lower = text.lower()
     score = 0
 
-    # Finnish special characters
-    for char in ['ä', 'ö', 'å']:
-        score += text_lower.count(char) * 2
-
-    # Finnish double vowels
-    double_vowels = ['aa', 'ee', 'ii', 'oo', 'uu', 'yy', 'ää', 'öö']
-    for dv in double_vowels:
-        if dv in text_lower:
-            score += 1
-
-    # Common Finnish words
-    finnish_words = ['ja', 'on', 'ei', 'se', 'että', 'kun', 'niin', 'kuin',
-                     'oli', 'olla', 'joka', 'mutta', 'tai', 'jos', 'vain',
-                     'nyt', 'jo', 'vielä', 'sitten', 'koska', 'kanssa',
-                     'minä', 'sinä', 'hän', 'me', 'te', 'he', 'tämä', 'tuo']
+    # Common English words
+    english_words = ['the', 'and', 'is', 'it', 'that', 'was', 'for', 'on',
+                     'are', 'with', 'they', 'be', 'at', 'one', 'have', 'this',
+                     'from', 'by', 'not', 'but', 'what', 'all', 'were', 'we',
+                     'when', 'your', 'can', 'said', 'there', 'use', 'an', 'each',
+                     'which', 'she', 'do', 'how', 'their', 'if', 'will', 'up',
+                     'about', 'out', 'many', 'then', 'them', 'these', 'so', 'some']
 
     words = text_lower.split()
     for word in words:
-        if word in finnish_words:
+        if word in english_words:
             score += 1
 
     return score >= 3
@@ -470,7 +465,8 @@ def display_post(post_data, keywords, finnish_only=False, silent_mode=False):
 
         # Check if any keyword matches (case-insensitive)
         text_lower = text.lower()
-        if not any(kw.lower() in text_lower for kw in keywords):
+        matched_keywords = [kw for kw in keywords if kw.lower() in text_lower]
+        if not matched_keywords:
             return
 
         # Extract links from facets (exclude Bluesky internal links)
@@ -492,18 +488,20 @@ def display_post(post_data, keywords, finnish_only=False, silent_mode=False):
             if ext_uri and ext_uri not in links and not is_bluesky_link(ext_uri):
                 links.append(ext_uri)
 
-        # Check if post is Finnish
-        post_is_finnish = is_finnish(text, langs)
+        # Check if post is English
+        post_is_english = is_english(text, langs)
 
         # Get translation if needed
         translation = None
-        if not post_is_finnish:
-            translation = translate_to_finnish(text)
+        source_lang = None
+        if not post_is_english:
+            translation, source_lang = translate_to_english(text)
             if translation and translation.lower() == text.lower():
                 translation = None  # No real translation
+                source_lang = None
 
-        # Finnish only mode: skip posts that can't be translated
-        if finnish_only and not post_is_finnish and not translation:
+        # English only mode: skip posts that can't be translated
+        if finnish_only and not post_is_english and not translation:
             return
 
         # Record displayed post
@@ -529,11 +527,11 @@ def display_post(post_data, keywords, finnish_only=False, silent_mode=False):
 
         # Print separator and timestamp
         print(f"\n{BRIGHT_CYAN}{'─' * 60}{RESET}")
-        print(f"{BRIGHT_YELLOW}[{display_time}]{RESET}")
+        print(f"{BRIGHT_YELLOW}[{display_time}]{RESET} {BRIGHT_GREEN}{', '.join(matched_keywords)}{RESET}")
 
         if finnish_only:
-            # Show only Finnish content in bright white
-            if post_is_finnish:
+            # Show only English content in bright white
+            if post_is_english:
                 print(f"\n{BRIGHT_WHITE}{text}{RESET}")
             elif translation:
                 print(f"\n{BRIGHT_WHITE}{translation}{RESET}")
@@ -541,7 +539,8 @@ def display_post(post_data, keywords, finnish_only=False, silent_mode=False):
             # Show both original and translation
             print(f"\n{BRIGHT_WHITE}{text}{RESET}")
             if translation:
-                print(f"\n{BRIGHT_LIGHT_BLUE}[FI] {translation}{RESET}")
+                lang_name = LANGUAGE_NAMES.get(source_lang, source_lang) if source_lang else 'Unknown'
+                print(f"\n{BRIGHT_LIGHT_BLUE}[{lang_name} → EN] {translation}{RESET}")
 
         # Print external links in bright red
         for link in links:
@@ -643,7 +642,7 @@ async def monitor_jetstream(keywords, finnish_only=False, silent_mode=False):
         print(f"\n{BRIGHT_WHITE}Connecting to Bluesky Jetstream...{RESET}")
         print(f"{BRIGHT_YELLOW}Monitoring for keywords: {', '.join(keywords)}{RESET}")
         if finnish_only:
-            print(f"{BRIGHT_CYAN}Mode: Finnish only{RESET}")
+            print(f"{BRIGHT_CYAN}Mode: English only{RESET}")
         print(f"{BRIGHT_CYAN}Press Q to quit{RESET}\n")
 
     while not quit_flag:
@@ -832,8 +831,8 @@ def main():
 
     # Ask for display mode
     print(f"\n{BRIGHT_CYAN}Display mode:{RESET}")
-    print(f"  {BRIGHT_WHITE}1{RESET} - Show original + Finnish translation (default)")
-    print(f"  {BRIGHT_WHITE}2{RESET} - Show only Finnish (translated)")
+    print(f"  {BRIGHT_WHITE}1{RESET} - Show original + English translation (default)")
+    print(f"  {BRIGHT_WHITE}2{RESET} - Show only English (translated)")
     print(f"  {BRIGHT_WHITE}3{RESET} - Background mode (live statistics only)")
     mode_choice = input("\nSelect mode [1]: ").strip()
 
