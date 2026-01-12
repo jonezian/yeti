@@ -26,7 +26,13 @@ Thumbs.db
 
 # Logs
 *.log
+*_logs/
 full.log
 posts.log
-suomennettu.log
+translated.log
 URLs.log
+
+# Generated files
+keywords.txt
+report.txt
+*.ps
