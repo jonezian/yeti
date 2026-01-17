@@ -15,6 +15,7 @@ import shutil
 import sys
 import termios
 import tty
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from collections import defaultdict
 
@@ -502,16 +503,33 @@ def fetch_bluesky_profile(did):
     return None
 
 
-def fetch_profiles_batch(dids, progress_callback=None):
-    """Fetch display names for multiple DIDs."""
+def fetch_profiles_batch(dids, progress_callback=None, max_workers=10):
+    """Fetch display names for multiple DIDs using concurrent requests.
+
+    Args:
+        dids: List of DIDs to fetch
+        progress_callback: Optional callback(current, total) for progress updates
+        max_workers: Maximum number of concurrent requests (default 10)
+    """
     profiles = {}
     total = len(dids)
-    for i, did in enumerate(dids, 1):
-        if progress_callback:
-            progress_callback(i, total)
-        profile = fetch_bluesky_profile(did)
-        if profile:
-            profiles[did] = profile
+    completed = 0
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_did = {executor.submit(fetch_bluesky_profile, did): did for did in dids}
+
+        for future in as_completed(future_to_did):
+            did = future_to_did[future]
+            completed += 1
+            if progress_callback:
+                progress_callback(completed, total)
+            try:
+                profile = future.result()
+                if profile:
+                    profiles[did] = profile
+            except Exception:
+                pass
+
     return profiles
 
 
@@ -567,7 +585,7 @@ def archive_logs_and_reset():
     """Archive current logs and reset for new collection cycle."""
     global stats, log_files, filtered_posts_for_translation
 
-    batch_translate_posts()
+    batch_translate_posts(skip_countdown=True)  # Skip countdown in auto-archive mode
     stats.finish()
 
     if log_files:
@@ -615,8 +633,12 @@ def check_run_limits():
     return False
 
 
-def batch_translate_posts():
-    """Translate all filtered posts to English and Finnish."""
+def batch_translate_posts(skip_countdown=False):
+    """Translate all filtered posts to English and Finnish.
+
+    Args:
+        skip_countdown: If True, skip the 10-second countdown (used in auto-archive mode)
+    """
     global filtered_posts_for_translation, log_files, stats
 
     total = len(filtered_posts_for_translation)
@@ -632,28 +654,32 @@ def batch_translate_posts():
     print(f"\n{BRIGHT_WHITE}Posts to translate:{RESET} {BRIGHT_GREEN}{total:,}{RESET}")
     print(f"{BRIGHT_WHITE}Unique profiles:{RESET} {BRIGHT_GREEN}{len(unique_dids):,}{RESET}")
 
-    # 10-second countdown with Q to cancel
-    print(f"\n{BRIGHT_YELLOW}Starting translation in 10 seconds... Press Q to cancel{RESET}")
+    # Skip countdown in auto-archive mode
+    if skip_countdown:
+        print(f"\n{BRIGHT_GREEN}Starting translation (auto-archive mode)...{RESET}")
+    else:
+        # 10-second countdown with Q to cancel
+        print(f"\n{BRIGHT_YELLOW}Starting translation in 10 seconds... Press Q to cancel{RESET}")
 
-    old_settings = termios.tcgetattr(sys.stdin)
-    cancelled = False
-    try:
-        tty.setcbreak(sys.stdin.fileno())
-        for countdown in range(10, 0, -1):
-            print(f"\r{BRIGHT_CYAN}Starting in {countdown}...{RESET}  ", end="", flush=True)
-            ready, _, _ = select.select([sys.stdin], [], [], 1.0)
-            if ready:
-                if sys.stdin.read(1).lower() == 'q':
-                    print(f"\r{BRIGHT_RED}Translation cancelled by user.{RESET}          ")
-                    cancelled = True
-                    break
-    finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        old_settings = termios.tcgetattr(sys.stdin)
+        cancelled = False
+        try:
+            tty.setcbreak(sys.stdin.fileno())
+            for countdown in range(10, 0, -1):
+                print(f"\r{BRIGHT_CYAN}Starting in {countdown}...{RESET}  ", end="", flush=True)
+                ready, _, _ = select.select([sys.stdin], [], [], 1.0)
+                if ready:
+                    if sys.stdin.read(1).lower() == 'q':
+                        print(f"\r{BRIGHT_RED}Translation cancelled by user.{RESET}          ")
+                        cancelled = True
+                        break
+        finally:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
-    if cancelled:
-        return
+        if cancelled:
+            return
 
-    print(f"\r{BRIGHT_GREEN}Starting translation...{RESET}      ")
+        print(f"\r{BRIGHT_GREEN}Starting translation...{RESET}      ")
 
     # Fetch profiles
     print(f"\n{BRIGHT_WHITE}Fetching profile display names...{RESET}")
@@ -683,44 +709,68 @@ def batch_translate_posts():
             if name:
                 stats.profile_handles[url] = name
 
-    # Translate
-    print(f"\n{BRIGHT_WHITE}Translating posts...{RESET}")
+    # Translate using parallel processing
+    print(f"\n{BRIGHT_WHITE}Translating posts (parallel)...{RESET}")
     translated_en, translated_fi, skipped_en, skipped_fi = 0, 0, 0, 0
+    completed = 0
 
-    for i, post in enumerate(filtered_posts_for_translation, 1):
-        text, ts, lang = post['text'], post['timestamp'], post['lang']
-        did, post_url = post.get('did', ''), post.get('post_url', '')
-        info = profile_cache.get(did, {})
-        author_name, author_handle = info.get('displayName', ''), info.get('handle', '')
-
-        print(f"\r{BRIGHT_YELLOW}Progress: {i:,}/{total:,} ({i*100//total}%) - EN: {translated_en:,} FI: {translated_fi:,}{RESET}", end="", flush=True)
-
+    def translate_post(post_data):
+        """Translate a single post to both English and Finnish."""
+        text = post_data['text']
+        lang = post_data['lang']
         is_en = lang and lang.lower().startswith('en')
         is_fi = lang and lang.lower().startswith('fi')
 
-        # English translation
-        if is_en:
-            skipped_en += 1
-            if log_files:
-                log_files.log_eng(text, text, ts, lang, author_name, author_handle, post_url)
-        else:
-            trans, src = translate_to_english(text)
-            if trans and trans.lower() != text.lower():
-                translated_en += 1
-            if log_files:
-                log_files.log_eng(text, trans or text, ts, src or lang, author_name, author_handle, post_url)
+        en_trans, en_src = (text, lang) if is_en else translate_to_english(text)
+        fi_trans, fi_src = (text, lang) if is_fi else translate_to_finnish(text)
 
-        # Finnish translation
-        if is_fi:
-            skipped_fi += 1
-            if log_files:
-                log_files.log_fin(text, text, ts, lang, author_name, author_handle, post_url)
-        else:
-            trans, src = translate_to_finnish(text)
-            if trans and trans.lower() != text.lower():
-                translated_fi += 1
-            if log_files:
-                log_files.log_fin(text, trans or text, ts, src or lang, author_name, author_handle, post_url)
+        return {
+            'post': post_data,
+            'en_trans': en_trans or text,
+            'en_src': en_src or lang,
+            'fi_trans': fi_trans or text,
+            'fi_src': fi_src or lang,
+            'skipped_en': is_en,
+            'skipped_fi': is_fi,
+            'translated_en': not is_en and en_trans and en_trans.lower() != text.lower(),
+            'translated_fi': not is_fi and fi_trans and fi_trans.lower() != text.lower(),
+        }
+
+    # Process translations in parallel
+    results = []
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        future_to_post = {executor.submit(translate_post, post): post
+                         for post in filtered_posts_for_translation}
+
+        for future in as_completed(future_to_post):
+            completed += 1
+            print(f"\r{BRIGHT_YELLOW}Translating: {completed:,}/{total:,} ({completed*100//total}%){RESET}  ", end="", flush=True)
+            try:
+                result = future.result()
+                results.append(result)
+                if result['skipped_en']:
+                    skipped_en += 1
+                if result['skipped_fi']:
+                    skipped_fi += 1
+                if result['translated_en']:
+                    translated_en += 1
+                if result['translated_fi']:
+                    translated_fi += 1
+            except Exception:
+                pass
+
+    # Write results to log files (must be done sequentially)
+    if log_files:
+        for result in results:
+            post = result['post']
+            did = post.get('did', '')
+            info = profile_cache.get(did, {})
+            author_name, author_handle = info.get('displayName', ''), info.get('handle', '')
+
+            log_files.log_eng(post['text'], result['en_trans'], post['timestamp'],
+                            result['en_src'], author_name, author_handle, post.get('post_url', ''))
+            log_files.log_fin(post['text'], result['fi_trans'], post['timestamp'],
+                            result['fi_src'], author_name, author_handle, post.get('post_url', ''))
 
     print(f"\r{' ' * 80}\r", end="")
     print(f"{BRIGHT_GREEN}Translation complete!{RESET}")
@@ -824,15 +874,10 @@ def display_post(post_data, keywords, keywords_lower, silent_mode=False):
                     stats.record_url()
 
             if profile_url:
-                is_new = profile_url not in stats.unique_profiles if stats else True
-                display_name = None
-                if is_new and did:
-                    info = fetch_bluesky_profile(did)
-                    if info:
-                        display_name = info.get('displayName', '')
-                log_files.log_profile(profile_url, display_name)
+                # Just track the profile - display names will be fetched in batch phase
+                log_files.log_profile(profile_url)
                 if stats:
-                    stats.record_profile(profile_url, handle, display_name)
+                    stats.record_profile(profile_url, handle)
 
         if silent_mode:
             return

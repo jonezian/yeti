@@ -20,12 +20,13 @@ python yeti.py
 
 - `websockets` - WebSocket client for Jetstream connection
 - `requests` - HTTP client for Google Translate API and Bluesky profile API
+- `concurrent.futures` - Parallel processing (standard library)
 
 Install with: `pip install websockets requests`
 
 ## Architecture
 
-The application is a single-file async Python script (`yeti.py`, ~1200 lines) with these main components:
+The application is a single-file async Python script (`yeti.py`, ~1250 lines) with these main components:
 
 ### Constants and Configuration
 
@@ -39,7 +40,7 @@ LOG_PATTERNS = [...]                 # Patterns for log file backup/archive
 
 ### Core Classes
 
-#### Statistics (lines 100-372)
+#### Statistics (lines 101-373)
 Tracks comprehensive session metrics:
 - Total and filtered post counts
 - Language distribution with percentage breakdown
@@ -56,7 +57,7 @@ Key methods:
 - `record_profile()` - Track unique authors with display names
 - `print_report()` - Generate colored terminal output and log file
 
-#### LogFiles (lines 375-486)
+#### LogFiles (lines 376-487)
 Manages eight log files with automatic backup of previous sessions:
 - `ALL.{timestamp}.log` - All posts from stream (raw text)
 - `FILTER.{timestamp}.log` - Keyword-matched posts with metadata
@@ -76,16 +77,16 @@ def get_http_session():
     """Reusable HTTP session for API calls (connection pooling)."""
 ```
 
-#### Profile Fetching (lines 488-515)
+#### Profile Fetching (lines 488-530)
 ```python
 def fetch_bluesky_profile(did):
     """Fetch display name and handle from Bluesky API."""
 
-def fetch_profiles_batch(dids, progress_callback=None):
-    """Batch fetch profiles with progress reporting."""
+def fetch_profiles_batch(dids, progress_callback=None, max_workers=10):
+    """Batch fetch profiles using concurrent requests (ThreadPoolExecutor)."""
 ```
 
-#### Translation (lines 518-545)
+#### Translation (lines 536-563)
 ```python
 def translate_text(text, target_lang):
     """Unified translation via Google Translate API.
@@ -98,20 +99,21 @@ def translate_to_finnish(text):
     """Convenience wrapper for Finnish translation."""
 ```
 
-#### Batch Translation (lines 618-729)
+#### Batch Translation (lines 636-770)
 ```python
-def batch_translate_posts():
+def batch_translate_posts(skip_countdown=False):
     """Translate all filtered posts to both English and Finnish.
     Features:
-    - 10-second countdown with Q to cancel
-    - Profile batch fetching with progress
+    - 10-second countdown with Q to cancel (skipped in auto-archive mode)
+    - Parallel profile fetching with ThreadPoolExecutor (10 workers)
+    - Parallel translation processing with ThreadPoolExecutor (8 workers)
     - PROFILES log update with display names
     - Progress display during translation
     - Statistics for skipped (already in target language) posts
     """
 ```
 
-#### Post Processing (lines 732-850)
+#### Post Processing (lines 782-895)
 ```python
 def display_post(post_data, keywords, keywords_lower, silent_mode=False):
     """Process incoming post:
@@ -124,7 +126,7 @@ def display_post(post_data, keywords, keywords_lower, silent_mode=False):
     """
 ```
 
-#### Live Statistics Display (lines 853-930)
+#### Live Statistics Display (lines 898-975)
 ```python
 def display_live_stats():
     """Display live statistics dashboard including:
@@ -138,7 +140,7 @@ def display_live_stats():
     """
 ```
 
-#### WebSocket Monitoring (lines 972-1021)
+#### WebSocket Monitoring (lines 1017-1066)
 ```python
 async def monitor_jetstream(keywords, keywords_lower, silent_mode=False):
     """Main monitoring loop:
@@ -158,8 +160,8 @@ async def monitor_jetstream(keywords, keywords_lower, silent_mode=False):
 5. **Storage**: Filtered posts stored in memory for batch translation
 6. **Statistics**: Real-time tracking of all metrics
 7. **Logging**: Continuous logging to 8 separate files
-8. **Shutdown**: User presses Q or limit reached
-9. **Translation**: 10-second countdown, then batch translate all filtered posts
+8. **Shutdown**: User presses Q or limit reached (time-limited mode auto-archives and continues)
+9. **Translation**: Batch translate all filtered posts (parallel processing, countdown skipped in auto-archive)
 10. **Report**: Generate comprehensive statistics report
 
 ### Run Modes
@@ -180,6 +182,9 @@ async def monitor_jetstream(keywords, keywords_lower, silent_mode=False):
 - **HTTP session reuse**: Connection pooling via `requests.Session()`
 - **Unified translation function**: Single `translate_text()` for both languages
 - **Helper methods in classes**: Reduced code duplication in Statistics and LogFiles
+- **Parallel profile fetching**: `ThreadPoolExecutor` with 10 workers for concurrent API calls
+- **Parallel translation**: `ThreadPoolExecutor` with 8 workers for concurrent EN/FI translations
+- **Auto-archive optimization**: Skip countdown in time-limited mode for faster cycling
 
 ## Log Files
 
