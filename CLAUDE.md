@@ -4,49 +4,91 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Yeti is a real-time Bluesky post monitor that connects to the Jetstream WebSocket service. It filters posts by keywords, collects comprehensive statistics, and batch-translates all filtered content to English and Finnish after monitoring ends.
+Yeti is a real-time Bluesky post monitor that connects to the Jetstream WebSocket service. It filters posts by keywords, collects comprehensive statistics, and supports real-time Finnish translation. Supports both Linux and Windows platforms.
 
 ## Running the Application
 
 ```bash
 # Activate virtual environment
-source venv/bin/activate
+source venv/bin/activate  # Linux/macOS
+# or: venv\Scripts\activate  # Windows
+
+# Install dependencies
+pip install -r requirements.txt
 
 # Run the monitor
 python yeti.py
+
+# Run with a log file
+python yeti.py -f /path/to/logfile.log
+
+# Run tests
+python -m pytest test_yeti.py -v
 ```
 
 ## Dependencies
 
-- `websockets` - WebSocket client for Jetstream connection
-- `requests` - HTTP client for Google Translate API and Bluesky profile API
-- `concurrent.futures` - Parallel processing (standard library)
-
-Install with: `pip install websockets requests`
+See `requirements.txt`:
+- `websockets>=12.0` - WebSocket client for Jetstream connection
+- `requests>=2.31.0` - HTTP client for Google Translate API and Bluesky profile API
+- `rich>=13.7.0` - Terminal UI with live updates and tables
+- `urllib3>=2.0.0` - HTTP library with retry support
 
 ## Architecture
 
-The application is a single-file async Python script (`yeti.py`, ~1250 lines) with these main components:
+The application is a single-file async Python script (`yeti.py`, ~2250 lines) with these main components:
 
-### Constants and Configuration
+### Platform Support
 
 ```python
-JETSTREAM_URL = "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post"
-BLUESKY_DOMAINS = frozenset([...])  # O(1) lookup for internal link detection
-ENGLISH_WORDS = frozenset([...])    # O(1) lookup for language detection
-LANGUAGE_NAMES = {...}               # Language code to full name mapping
-LOG_PATTERNS = [...]                 # Patterns for log file backup/archive
+IS_WINDOWS = platform.system() == 'Windows'
+
+# Platform-agnostic functions:
+check_key_pressed()   # Non-blocking keyboard input
+setup_terminal()      # Configure terminal for raw input
+restore_terminal()    # Restore terminal settings
+```
+
+### Security Constants
+
+```python
+MAX_TEXT_LENGTH = 5000   # Max characters for translation
+MAX_JSON_SIZE = 1024 * 1024  # 1MB max JSON size
+MAX_LINE_LENGTH = 100000  # Max line length when reading files
+```
+
+### Precompiled Patterns
+
+```python
+HASHTAG_PATTERN = re.compile(r'#(\w+)')
+URL_PATTERN = re.compile(r'https?://[^\s]+')
+DATE_LOG_PATTERN = re.compile(r'^(\d{4}-\d{2}-\d{2})\.log$')
+```
+
+### Validation Functions
+
+```python
+def sanitize_text(text: str, max_length: int) -> str:
+    """Sanitize and truncate text to max length."""
+
+def validate_url(url: str) -> bool:
+    """Validate URL using urlparse (http/https only)."""
+
+def safe_path(path: str) -> str | None:
+    """Safely resolve and validate file paths."""
+
+def safe_json_loads(data: str, max_size: int) -> dict | None:
+    """Safely parse JSON with size limit."""
 ```
 
 ### Core Classes
 
-#### Statistics (lines 101-373)
+#### Statistics
 Tracks comprehensive session metrics:
 - Total and filtered post counts
 - Language distribution with percentage breakdown
 - Keyword match counts
 - Hashtag counts (both stream-wide and filtered)
-- Unique profile tracking with post counts per author
 - External URL counts
 
 Key methods:
@@ -54,95 +96,54 @@ Key methods:
 - `record_displayed()` - Track filtered posts and keyword matches
 - `record_language()` - Track language distribution
 - `record_hashtags()` - Track hashtag usage
-- `record_profile()` - Track unique authors with display names
-- `print_report()` - Generate colored terminal output and log file
+- `get_top_keywords(n)` - Get top N keywords using heapq
+- `get_top_languages(n)` - Get top N languages using heapq
+- `get_top_hashtags(n)` - Get top N hashtags using heapq
+- `print_report()` - Generate colored terminal output
 
-#### LogFiles (lines 376-487)
-Manages eight log files with automatic backup of previous sessions:
-- `ALL.{timestamp}.log` - All posts from stream (raw text)
-- `FILTER.{timestamp}.log` - Keyword-matched posts with metadata
-- `ENG_{timestamp}.log` - English translations with author info
-- `FIN_{timestamp}.log` - Finnish translations with author info
-- `EXT-URL.{timestamp}.log` - External URLs only
-- `PROFILES.{timestamp}.log` - Unique profiles with display names
-- `FILTER_hashtag.{timestamp}.log` - Hashtags from filtered posts
-- `ALL_hashtag.{timestamp}.log` - All hashtags from stream
-- `REPORT_{timestamp}.log` - Session statistics report
+#### LogFiles
+Manages log files in the `LOGS/` directory:
+- `LIVE_{date}.log` - Live stream posts (append mode)
+- `FULL_{date}.log` - File analysis results (append mode)
 
 ### Key Functions
 
-#### HTTP Session Management (lines 91-97)
+#### HTTP Session Management
 ```python
 def get_http_session():
-    """Reusable HTTP session for API calls (connection pooling)."""
-```
-
-#### Profile Fetching (lines 488-530)
-```python
-def fetch_bluesky_profile(did):
-    """Fetch display name and handle from Bluesky API."""
-
-def fetch_profiles_batch(dids, progress_callback=None, max_workers=10):
-    """Batch fetch profiles using concurrent requests (ThreadPoolExecutor)."""
-```
-
-#### Translation (lines 536-563)
-```python
-def translate_text(text, target_lang):
-    """Unified translation via Google Translate API.
-    Returns (translation, source_language_code)."""
-
-def translate_to_english(text):
-    """Convenience wrapper for English translation."""
-
-def translate_to_finnish(text):
-    """Convenience wrapper for Finnish translation."""
-```
-
-#### Batch Translation (lines 636-770)
-```python
-def batch_translate_posts(skip_countdown=False):
-    """Translate all filtered posts to both English and Finnish.
-    Features:
-    - 10-second countdown with Q to cancel (skipped in auto-archive mode)
-    - Parallel profile fetching with ThreadPoolExecutor (10 workers)
-    - Parallel translation processing with ThreadPoolExecutor (8 workers)
-    - PROFILES log update with display names
-    - Progress display during translation
-    - Statistics for skipped (already in target language) posts
+    """Reusable HTTP session with retry logic and connection pooling.
+    - 3 retries with exponential backoff
+    - Pool of 20 connections
+    - Handles 429, 500, 502, 503, 504 status codes
     """
 ```
 
-#### Post Processing (lines 782-895)
+#### Translation
 ```python
-def display_post(post_data, keywords, keywords_lower, silent_mode=False):
+def translate_to_finnish(text: str) -> tuple[str, str]:
+    """Translate text to Finnish using Google Translate API.
+    - Input sanitized to MAX_TEXT_LENGTH
+    - Returns (translated_text, source_language_code)
+    """
+```
+
+#### Post Processing
+```python
+def display_post(post_data: dict, keywords: list[str], keywords_lower: list[str],
+                 silent_mode: bool = False, analyzed_mode: bool = False) -> None:
     """Process incoming post:
     - Extract text, timestamp, language, hashtags, external links
     - Check keyword matches (using pre-computed lowercase)
-    - Store for batch translation
     - Update statistics
-    - Log to appropriate files
+    - Log to files
     - Display if not in silent mode
     """
 ```
 
-#### Live Statistics Display (lines 898-975)
+#### WebSocket Monitoring
 ```python
-def display_live_stats():
-    """Display live statistics dashboard including:
-    - Running time
-    - Stream stats (total posts, posts/second, hashtags)
-    - Filter stats (matched posts, match rate, unique profiles)
-    - Top 5 keyword matches
-    - Top 5 authors with display names and profile links
-    - Top 5 languages with percentages
-    - Top 5 hashtags
-    """
-```
-
-#### WebSocket Monitoring (lines 1017-1066)
-```python
-async def monitor_jetstream(keywords, keywords_lower, silent_mode=False):
+async def monitor_jetstream(keywords: list[str], keywords_lower: list[str],
+                           silent_mode: bool = False, analyzed_mode: bool = False) -> None:
     """Main monitoring loop:
     - Connects to Jetstream WebSocket
     - Handles reconnection on disconnect
@@ -154,52 +155,59 @@ async def monitor_jetstream(keywords, keywords_lower, silent_mode=False):
 ### Data Flow
 
 1. **Startup**: User enters keywords (or loads from `keywords.txt`)
-2. **Configuration**: User selects run mode and display mode
-3. **Monitoring**: WebSocket receives all Bluesky posts
-4. **Filtering**: Posts checked against keywords (case-insensitive, pre-computed lowercase)
-5. **Storage**: Filtered posts stored in memory for batch translation
+2. **Data Source**: Choose between live Jetstream or log file analysis
+3. **Configuration**: User selects run mode and display mode
+4. **Monitoring**: WebSocket receives all Bluesky posts (or reads from file)
+5. **Filtering**: Posts checked against keywords (case-insensitive)
 6. **Statistics**: Real-time tracking of all metrics
-7. **Logging**: Continuous logging to 8 separate files
-8. **Shutdown**: User presses Q or limit reached (time-limited mode auto-archives and continues)
-9. **Translation**: Batch translate all filtered posts (parallel processing, countdown skipped in auto-archive)
-10. **Report**: Generate comprehensive statistics report
+7. **Logging**: Continuous logging to date-based files
+8. **Shutdown**: User presses Q or limit reached
+9. **Report**: Generate comprehensive statistics report
 
 ### Run Modes
 
 1. **Continuous** - Run until Q pressed (default)
-2. **Time-limited** - Run for specified duration (hours/minutes/seconds), auto-archives and continues
+2. **Time-limited** - Run for specified duration, auto-archives and continues
 3. **Post-limited** - Stop after N filtered posts collected
 
 ### Display Modes
 
 1. **Show filtered posts** - Display posts with language, keywords, external links
 2. **Background mode** (default) - Live statistics dashboard only
+3. **Translated mode** - Posts translated to Finnish with full details
 
 ### Optimization Features
 
-- **frozenset for constants**: O(1) lookup for domain and word checks
+- **Precompiled regex**: Patterns compiled at module level
+- **heapq for top-N**: O(n log k) instead of O(n log n) for rankings
 - **Pre-computed lowercase keywords**: Avoid repeated `.lower()` calls
-- **HTTP session reuse**: Connection pooling via `requests.Session()`
-- **Unified translation function**: Single `translate_text()` for both languages
-- **Helper methods in classes**: Reduced code duplication in Statistics and LogFiles
-- **Parallel profile fetching**: `ThreadPoolExecutor` with 10 workers for concurrent API calls
-- **Parallel translation**: `ThreadPoolExecutor` with 8 workers for concurrent EN/FI translations
-- **Auto-archive optimization**: Skip countdown in time-limited mode for faster cycling
+- **HTTP session reuse**: Connection pooling with retry logic
+- **Platform-agnostic code**: Works on Linux and Windows
+
+## Environment Variables
+
+- `YETI_LOG_DIR` - Additional directory to search for log files
 
 ## Log Files
 
 Generated files are gitignored:
-- `ALL.*.log` - All posts from stream
-- `FILTER.*.log` - Keyword-matched posts with full details
-- `ENG_*.log` - English translations with author, timestamp, source language
-- `FIN_*.log` - Finnish translations with author, timestamp, source language
-- `EXT-URL.*.log` - External URLs extracted from posts
-- `PROFILES.*.log` - Unique author profiles with display names
-- `FILTER_hashtag.*.log` - Hashtags from filtered posts
-- `ALL_hashtag.*.log` - All hashtags from stream
-- `REPORT_*.log` - Session statistics report
+- `LOGS/LIVE_{date}.log` - Live stream filtered posts
+- `LOGS/FULL_{date}.log` - File analysis results
 - `keywords.txt` - Saved keywords for reuse
-- `*_logs/` - Backup directories for previous sessions
+
+## Testing
+
+Run the test suite:
+```bash
+python -m pytest test_yeti.py -v
+```
+
+Test coverage includes:
+- `format_time()` / `format_number()` - Formatting functions
+- `sanitize_text()` / `validate_url()` - Input validation
+- `safe_json_loads()` / `safe_path()` - Security functions
+- `extract_hashtags()` / `extract_links()` - Data extraction
+- `Statistics` class - Metrics tracking
 
 ## API Endpoints Used
 
